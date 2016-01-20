@@ -1,0 +1,9 @@
+[submodule "sync-append"]
+	path = sync-append
+	url = git@github.com:chethiya/sync-append.git
+[submodule "IO"]
+	path = IO
+	url = git@github.com:vpj/IO.git
+[submodule "weya"]
+	path = weya
+	url = git@github.com:vpj/weya.git
