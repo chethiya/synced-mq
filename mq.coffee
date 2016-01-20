@@ -9,6 +9,10 @@ FS = require 'fs'
 groups = {}
 syncs = {}
 
+CHUNK = 1<<17 # 128KB
+SPACE = ' '.charCodeAt 0
+NEW_LINE = '\n'.charCodeAt 0
+
 class MessageQueue extends Base
  @extend()
 
@@ -45,11 +49,16 @@ class MessageQueue extends Base
 
    files = {}
    files[@id] = @filePath
-   files["#{@id}.pos"] = "#{@filePath}.pos"
-   @sync.start files
+   @cursorPath = "#{@filePath}.cursor"
+   files["#{@id}.cursor"] = @cursorPath
    @sync.syncStop()
+   @sync.start files
    @qFile = @sync.getFile @id
-   @posFile = @sync.getFile "#{@id}.pos"
+   @cursorFile = @sync.getFile "#{@id}.cursor"
+
+   @cursor = @readCursor()
+   @top = null
+   @buffer = null
 
    if @port?
     server = new IO.ports.NodeHttpServerPort port: @port, http
@@ -78,13 +87,106 @@ class MessageQueue extends Base
     for cb in @startCB
      cb?()
 
+ # files operations
+
+ readCursor: ->
+  try
+   fd = FS.openSync @cursorPath, 'r'
+   buffer = new Buffer CHUNK * 2
+   pos = 0
+   b = 0
+   res = null
+   while (cnt = FS.readSync fd, buffer, pos, CHUNK, b) > 0
+    b += cnt
+    i = pos
+    end = pos + cnt
+    while true
+     while i < end and buffer[i] isnt SPACE
+      i++
+     if i < end
+      res = parseInt buffer.toString 'utf8', pos, i
+      i++
+      pos = i
+     if i >= end
+      break
+    buffer.copy buffer, 0, pos, end
+    pos = end - pos
+   return res
+  catch
+   return 0
+
+ moveCursor: ->
+  @cursor = @nextCursor
+  @top = null
+  @cursorFile.append "#{@cursor} "
+
+ readTop: ->
+  str = ''
+  if not @buffer?
+   @buffer = new Buffer CHUNK
+   @bufferPos = 0
+   @bufferEnd = 0
+   @fd = FS.openSync @filePath, 'r'
+   @fdPos = @cursor
+   @nextCursor = @cursor
+   @top = null
+
+  if @top?
+   return @top
+
+  while true
+   i = @bufferPos
+   while i < @bufferEnd and @buffer[i] isnt NEW_LINE
+    @nextCursor++
+    i++
+   str += @buffer.toString 'utf8', @bufferPos, i
+   if i < @bufferEnd
+    i++
+    @nextCursor++
+    @bufferPos = i
+    @top = JSON.parse str
+    return @top
+   else
+    @bufferEnd = FS.readSync @fd, @buffer, 0, CHUNK, @fdPos
+    @fdPos += @bufferEnd
+    @bufferPos = 0
+
+    if @bufferEnd is 0
+     return null
+
+ # server events
+
  setupServer: ->
   IO.Client.on 'top', (data, options, res) =>
    @on.top (data) =>
     res.success data
 
+  IO.Client.on 'pop', (data, options, res) =>
+   @on.pop =>
+    @sync.sync()
+    res.success()
+
+  IO.Client.on 'push', (json, options, res) =>
+   @on.push json, =>
+    @sync.sync()
+    res.success()
+
+ #events
+
  @listen 'top', (callback) ->
-  callback @cnt++
+  @readTop()
+  callback @top
+
+ @listen 'pop', (callback) ->
+  @moveCursor()
+  callback()
+
+ @listen 'push', (json, callback) ->
+  str = JSON.stringify json
+  @qFile.append "#{str}\n"
+  callback()
+
+ # API
 
  top: (callback) ->
   if not @started
@@ -95,6 +197,31 @@ class MessageQueue extends Base
     callback data
   else
    @on.top callback
+
+ pop: (callback) ->
+  if not @started
+   return off
+
+  if @client is on
+   IO.Server.send 'pop', null,  =>
+    callback()
+  else
+   @on.pop =>
+    @sync.sync()
+    callback()
+
+ push: (json, callback) ->
+  if not @started
+   return off
+
+  if @client is on
+   IO.Server.send 'push', json,  =>
+    callback()
+  else
+   @on.push =>
+    @sync.sync()
+    callback()
+
 
  onStarted: (cb) ->
   if @started is on

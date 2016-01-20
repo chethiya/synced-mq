@@ -7,8 +7,10 @@ opt =
  syncFile: './sync.log'
 
 mq = new MessageQueue opt
+###
 mq.onStarted ->
  mq.top (data) ->
   console.log  data
   mq.top (data) ->
    console.log data
+###
