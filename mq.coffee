@@ -16,9 +16,6 @@ NEW_LINE = '\n'.charCodeAt 0
 class MessageQueue extends Base
  @extend()
 
- # server - port?, sync, filePath, sync (syncFilePath)
- # client - host, port
-
  @initialize (opt) ->
   @startCB = []
   @started = off
