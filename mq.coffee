@@ -217,7 +217,7 @@ class MessageQueue extends Base
     if not top?
      callback null
     else
-     target.push top, (result) =>
+     target.on.push top, (result) =>
       if not result
        callback null
       else
