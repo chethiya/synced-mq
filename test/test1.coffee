@@ -49,4 +49,14 @@ mq.onStarted ->
     top 3, ->
      pop 3, ->
       top 3, ->
-       console.log 'done'
+       push 2, ->
+        top 3, ->
+         pop 1, ->
+          top 3, ->
+           pop 1, ->
+            top 3, ->
+             pop 3, ->
+              push 10, ->
+               top 1, ->
+                pop 2, ->
+                console.log 'done'
