@@ -6,8 +6,8 @@ http = require 'http'
 PATH = require 'path'
 FS = require 'fs'
 
-groups = {}
 syncs = {}
+queues = {}
 
 CHUNK = 1<<17 # 128KB
 SPACE = ' '.charCodeAt 0
@@ -46,6 +46,7 @@ class MessageQueue extends Base
     @sync = syncs[@syncFile]
    else
     @sync = syncs[@syncFile] = new SyncAppend @syncFile
+   queues[@id] = this
 
    files = {}
    files[@id] = @filePath
@@ -57,7 +58,7 @@ class MessageQueue extends Base
    @cursorFile = @sync.getFile "#{@id}.cursor"
 
    @cursor = @nextCursor = @readCursor()
-   @top = null
+   @topValue = null
    @buffer = null
 
    if @port?
@@ -119,7 +120,7 @@ class MessageQueue extends Base
   if @cursor is @nextCursor
    return false
   @cursor = @nextCursor
-  @top = null
+  @topValue = null
   @cursorFile.append "#{@cursor} "
   return true
 
@@ -135,10 +136,10 @@ class MessageQueue extends Base
    @bufferEnd = 0
    @fdPos = @cursor
    @nextCursor = @cursor
-   @top = null
+   @topValue = null
 
-  if @top?
-   return @top
+  if @topValue?
+   return @topValue
 
   while true
    i = @bufferPos
@@ -150,8 +151,8 @@ class MessageQueue extends Base
     i++
     @nextCursor++
     @bufferPos = i
-    @top = JSON.parse str
-    return @top
+    @topValue = JSON.parse str
+    return @topValue
    else
     @bufferEnd = FS.readSync @fd, @buffer, 0, CHUNK, @fdPos
     @fdPos += @bufferEnd
@@ -159,6 +160,14 @@ class MessageQueue extends Base
 
     if @bufferEnd is 0
      return null
+
+ moveSync: (target) ->
+  if target?
+   @sync.sync()
+   if target.syncFile isnt @syncFile
+    target.sync.sync()
+   return on
+  return off
 
  # server events
 
@@ -174,25 +183,48 @@ class MessageQueue extends Base
     res.success result
 
   IO.Client.on 'push', (json, options, res) =>
-   @on.push json, =>
-    @sync.sync()
-    res.success()
+   @on.push json, (result) =>
+    if result is on
+     @sync.sync()
+    res.success result
+
+  IO.Client.on 'move', (targetId, options, res) =>
+   @on.move targetId, (target) =>
+    res.success @moveSync target
 
  #events
 
  @listen 'top', (callback) ->
   @readTop()
-  callback @top
+  callback @topValue
 
  @listen 'pop', (callback) ->
   res = @moveCursor()
   callback res
 
  @listen 'push', (json, callback) ->
-  json ?= null
-  str = JSON.stringify json
-  @qFile.append "#{str}\n"
-  callback()
+  if not json?
+   callback off
+  else
+   str = JSON.stringify json
+   @qFile.append "#{str}\n"
+   callback on
+
+ @listen "move", (targetId, callback) ->
+  target = queues[targetId]
+  if target?
+   @on.top (top) =>
+    if not top?
+     callback null
+    else
+     target.push top, (result) =>
+      if not result
+       callback null
+      else
+       @on.pop =>
+        callback target
+  else
+   callback null
 
  # API
 
@@ -224,13 +256,23 @@ class MessageQueue extends Base
    return off
 
   if @client is on
-   IO.Server.send 'push', json,  =>
-    callback()
+   IO.Server.send 'push', json,  (result) =>
+    callback result
   else
-   @on.push =>
-    @sync.sync()
-    callback()
+   @on.push json, (result) =>
+    if result is on
+     @sync.sync()
+    callback result
 
+ move: (targetId, callback) ->
+  if not @started
+   return off
+  if @client is on
+   IO.Server.send 'move', targetId, (result) =>
+    callback result
+  else
+   @on.move targetId, (target) =>
+    callback @moveSync target
 
  onStarted: (cb) ->
   if @started is on
