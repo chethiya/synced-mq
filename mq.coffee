@@ -26,6 +26,7 @@ class MessageQueue extends Base
 
   @client = opt.client
   @client ?= off
+  @onPushed = []
 
   if @client is off
    @id = opt.id
@@ -199,6 +200,10 @@ class MessageQueue extends Base
   res = @moveCursor()
   callback res
 
+ @listen 'pushed', ->
+  for cb in @onPushed
+   cb?()
+
  @listen 'push', (json, callback) ->
   if not json?
    callback off
@@ -206,6 +211,7 @@ class MessageQueue extends Base
    str = JSON.stringify json
    @qFile.append "#{str}\n"
    callback on
+   setTimeout @on.pushed, 0
 
  @listen "move", (targetId, callback) ->
   target = queues[targetId]
@@ -270,6 +276,12 @@ class MessageQueue extends Base
   else
    @on.move targetId, (target) =>
     callback @moveSync target
+
+ subscribe: (callback) ->
+  if @client is on
+   return off
+  @onPushed.push callback
+  return on
 
  onStarted: (cb) ->
   if @started is on
