@@ -56,7 +56,7 @@ class MessageQueue extends Base
    @qFile = @sync.getFile @id
    @cursorFile = @sync.getFile "#{@id}.cursor"
 
-   @cursor = @readCursor()
+   @cursor = @nextCursor = @readCursor()
    @top = null
    @buffer = null
 
@@ -116,17 +116,23 @@ class MessageQueue extends Base
    return 0
 
  moveCursor: ->
+  if @cursor is @nextCursor
+   return false
   @cursor = @nextCursor
   @top = null
   @cursorFile.append "#{@cursor} "
+  return true
 
  readTop: ->
   str = ''
   if not @buffer?
+   try
+    @fd = FS.openSync @filePath, 'r'
+   catch
+    return null
    @buffer = new Buffer CHUNK
    @bufferPos = 0
    @bufferEnd = 0
-   @fd = FS.openSync @filePath, 'r'
    @fdPos = @cursor
    @nextCursor = @cursor
    @top = null
@@ -162,9 +168,10 @@ class MessageQueue extends Base
     res.success data
 
   IO.Client.on 'pop', (data, options, res) =>
-   @on.pop =>
-    @sync.sync()
-    res.success()
+   @on.pop (result) =>
+    if result is on
+     @sync.sync()
+    res.success result
 
   IO.Client.on 'push', (json, options, res) =>
    @on.push json, =>
@@ -178,10 +185,11 @@ class MessageQueue extends Base
   callback @top
 
  @listen 'pop', (callback) ->
-  @moveCursor()
-  callback()
+  res = @moveCursor()
+  callback res
 
  @listen 'push', (json, callback) ->
+  json ?= null
   str = JSON.stringify json
   @qFile.append "#{str}\n"
   callback()
@@ -203,12 +211,13 @@ class MessageQueue extends Base
    return off
 
   if @client is on
-   IO.Server.send 'pop', null,  =>
-    callback()
+   IO.Server.send 'pop', null,  (res) =>
+    callback res
   else
-   @on.pop =>
-    @sync.sync()
-    callback()
+   @on.pop (res) =>
+    if res is on
+     @sync.sync()
+    callback res
 
  push: (json, callback) ->
   if not @started
