@@ -1,7 +1,6 @@
 Base = require './weya/base'
 SyncAppend = require './sync-append/sync-append'
 IO = require './IO/io'
-Session = require './IO/session'
 http = require 'http'
 PATH = require 'path'
 FS = require 'fs'
@@ -61,7 +60,6 @@ class MessageQueue extends Base
 
    if @port?
     server = new IO.ports.NodeHttpServerPort port: @port, http
-    server.wrap Session.MultiSession
     IO.addPort 'Client', server
     server.listen()
     @setupServer()
@@ -79,12 +77,8 @@ class MessageQueue extends Base
     port: @port
     path: '/'
    port = new IO.ports.NodeHttpPort options, http
-   port.wrap Session.SingleSession
    IO.addPort 'Server', port
-   IO.Server.newSession (session) =>
-    @started = on
-    for cb in @startCB
-     cb?()
+   @started = on
 
  # files operations
 
