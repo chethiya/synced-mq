@@ -1,5 +1,5 @@
 Base = require './weya/base'
-SyncAppend = require './sync-append/sync-append'
+SyncedAppend = require './synced-append/synced-append'
 IO = require './IO/io'
 Session = require './IO/session'
 http = require 'http'
@@ -43,7 +43,7 @@ class MessageQueue extends Base
    if syncs[@syncFile]?
     @sync = syncs[@syncFile]
    else
-    @sync = syncs[@syncFile] = new SyncAppend @syncFile
+    @sync = syncs[@syncFile] = new SyncedAppend @syncFile
    queues[@id] = this
 
    files = {}
